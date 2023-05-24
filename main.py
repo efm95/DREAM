@@ -2,7 +2,7 @@ import numpy as np
 import vaex as vx
 import torch
 
-from model.NeuREM import *
+from model.DREAM import *
 
 import logging
 
