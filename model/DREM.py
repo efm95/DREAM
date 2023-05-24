@@ -14,7 +14,7 @@ from utility import *
 
 import logging
 logging.basicConfig(format='%(asctime)s [%(filename)s] %(message)s',
-    datefmt='%Y-%m-%d:%H:%M:%S',
+    datefmt='%Y-%m-%d-%H:%M:%S',
     level=logging.INFO,
     encoding="utf-8")
 
@@ -49,7 +49,40 @@ class FeatureNN(torch.nn.Module):
 
         self.dropout = nn.Dropout(p=dropout)
 
-        ## First layer is ExU
+        #self.tanh = nn.Tanh()
+        self.cos = cos()
+        #self.sin = sin()
+        #self.rbf = rbf()
+        #self.sin = sin()
+        # #self.gelu = nn.GELU()
+        # self.relu = nn.ReLU()
+        #self.softmax = nn.Softmax()
+        # #self.sigmoid = nn.Sigmoid()
+        #self.silu = nn.SiLU()
+        #self.sgelu = sgelu()
+    
+        # #First layer
+        
+        layers.append(nn.Linear(in_features=input_shape,out_features=num_units))
+        #layers.append(cos())
+        
+        # #Hidden layers
+        for in_features, out_features in zip(all_hidden_sizes, all_hidden_sizes[1:]):
+            layers.append(nn.Linear(in_features,out_features))
+            #layers.append(cos())
+        
+         #Last layer
+        layers.append(nn.Linear(in_features=all_hidden_sizes[-1], out_features=1, bias=False))
+        
+        self.model = nn.ModuleList(layers)
+        
+        
+        ###################
+        ### PAPER MODEL ###
+        ###################
+        
+        """
+        # First layer is ExU
         if self._activation == "exu":
             layers.append(ExU(in_features=input_shape, out_features=num_units))
         else:
@@ -62,18 +95,24 @@ class FeatureNN(torch.nn.Module):
             layers.append(LinReLU(in_features, out_features))
             #layers.append(ExU(in_features,out_features))
             
-
         ## Last Linear Layer
         layers.append(nn.Linear(in_features=all_hidden_sizes[-1], out_features=1, bias=False))
 
         self.model = nn.ModuleList(layers)
-
+        """
+        
     def forward(self, inputs) -> torch.Tensor:
         """Computes FeatureNN output with either evaluation or training
         mode."""
         outputs = inputs.unsqueeze(1)
-        for layer in self.model:
-            outputs = self.dropout(layer(outputs))
+        #outputs = self.tanh(self.model[0](outputs))
+        
+        for layer in self.model[:-1]:
+            #outputs = self.dropout(layer(outputs))
+            outputs = self.dropout(self.cos(layer(outputs)))
+        outputs = self.model[-1](outputs)
+            
+        #outputs = self.model[-1](outputs)
         return outputs
     
 class NAM(torch.nn.Module):
@@ -197,7 +236,7 @@ class NeuREM:
                              num_units=self.first_layer,
                              hidden_sizes=self.single_layers,
                              dropout=self.dropout,
-                             feature_dropout=self.feature_dropout)#.to(device=device_identifier())
+                             feature_dropout=self.feature_dropout).to(device=self.device)
         
         #self.device = device_identifier()
         
@@ -218,8 +257,8 @@ class NeuREM:
         
         self.optimizer = torch.optim.Adam(self.model.parameters(),lr=lr)
         
-        event_val = events[val_pos]#.to(device=self.device)
-        non_event_val = non_events[val_pos]#.to(device=self.device)
+        event_val = events[val_pos].to(device=self.device)
+        non_event_val = non_events[val_pos].to(device=self.device)
         N_val = len(event_val)
         
         best_val_loss = torch.tensor(float('Inf')).item()
@@ -231,8 +270,8 @@ class NeuREM:
                 continue
             
             curr_batch+=1
-            x_event = events[batch]#.to(device=device_identifier())
-            x_non_event = non_events[batch]#.to(device=device_identifier())
+            x_event = events[batch].to(device=device_identifier())
+            x_non_event = non_events[batch].to(device=device_identifier())
             N = len(x_event)
             
             self.model.train()
@@ -253,22 +292,26 @@ class NeuREM:
             with torch.no_grad():
                 y_val = self.model(event_val,non_event_val)
                 val_loss = -y_val.log().sum()/N_val
+                val_loss = val_loss.to(device='cpu')
             
             if verbose:
                 logging.info(f'Batch: {batch+1} | NLL: {loss.item()} | Val Loss: {val_loss.item()}')
             
-            if np.round(val_loss.detach().numpy().item(),4) < np.round(best_val_loss,4):
+            if np.round(val_loss.detach().numpy().item(),4) <= np.round(best_val_loss,4):
                 best_val_loss = val_loss.detach().numpy().item()
                 best_batch += 1
             else:
-                if (curr_batch-best_batch)==3:
+                if (curr_batch-best_batch)==5:
                     logging.info(f'Iteration stopped at batch {batch+1}/{tot_batches+1} with NLL {loss.item()} and validation NLL {val_loss.item()}')
                     break
+                
+            if val_loss.item()<=0.001:
+                break
                 
     def feature_out(self,
                     nn_id:int,
                     input:torch.tensor):    
         self.model.eval()
         with torch.no_grad():
-            return self.model.NAM.feature_nns[nn_id](input).squeeze(1).detach()
+            return self.model.NAM.feature_nns[nn_id](input.to(device=self.device)).squeeze(1).detach()
         
